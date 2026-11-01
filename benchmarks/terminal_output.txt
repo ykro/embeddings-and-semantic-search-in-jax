@@ -1,0 +1,15 @@
+==============================================================================
+THE OUTSIDE JUDGE — Embeddings & Semantic Search in JAX Verification Report
+==============================================================================
+Runtime : Python 3.12.11 | JAX 0.12.0.1 | NumPy 2.5.4 | Backend: cpu
+------------------------------------------------------------------------------
+Experiment                          | Baseline       | JAX/OpenXLA    | Speedup / Check
+------------------------------------------------------------------------------
+01. Gather Lookup vs One-Hot        |    35.8146 ms |     0.1211 ms | 295.75x (250x less RAM)
+02. @jit L2 + Cosine einsum         |    86.9407 ms |     0.4352 ms | 199.77x (PASS)
+03. InfoNCE Contrastive Training    |      12.5% R@1 |     100.0% R@1 | +0.658 margin (184.6 ms)
+04. @jit Top-K Search (50k x 256)   |  1191.9367 ms |    15.7486 ms | 75.69x (123.0 us/q)
+05. Zero-Shot & Linear Probe        |      58.3% Acc |     100.0% Acc | ZS=100% / Probe=100%
+------------------------------------------------------------------------------
+Saved JSON report to: benchmarks/latest_results.json
+ALL DETERMINISTIC CHECKS PASSED.

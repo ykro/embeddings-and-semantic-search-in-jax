@@ -1,0 +1,129 @@
+{
+  "runtime": {
+    "python": "3.12.11",
+    "jax": "0.12.0.1",
+    "numpy": "2.5.4",
+    "backend": "cpu"
+  },
+  "experiments": {
+    "01_tokens_to_embedding_table": {
+      "backend": "cpu",
+      "vocab_size": 32000,
+      "embed_dim": 128,
+      "batch_shape": [
+        32,
+        64
+      ],
+      "onehot_buffer_mib": 250.0,
+      "dense_buffer_mib": 1.0,
+      "memory_saving_ratio": 250.0,
+      "onehot_ms": 35.81457779897998,
+      "lookup_ms": 0.12109863261381786,
+      "speedup": 295.7471692780567,
+      "max_diff": 0.0,
+      "pad_grad_norm": 0.0,
+      "active_grad_norm": 0.002581952139735222
+    },
+    "02_cosine_similarity_and_vector_space": {
+      "backend": "cpu",
+      "queries_shape": [
+        64,
+        256
+      ],
+      "docs_shape": [
+        2048,
+        256
+      ],
+      "max_norm_error": 1.7881393432617188e-07,
+      "numpy_loop_ms": 86.94070787169039,
+      "jax_jit_ms": 0.43520834296941757,
+      "speedup": 199.76801749363472,
+      "max_diff": 2.2351741790771484e-07,
+      "euclid_same_topic_long": 3.9890599250793457,
+      "euclid_unrelated_short": 1.3652106523513794,
+      "euclid_picks_correct_doc": false,
+      "cosine_same_topic_long": 0.9999909400939941,
+      "cosine_unrelated_short": 0.05573011934757233,
+      "cosine_picks_correct_doc": true
+    },
+    "03_training_contrastive_embeddings": {
+      "backend": "cpu",
+      "num_pairs": 16,
+      "embed_dim": 64,
+      "num_steps": 180,
+      "train_ms": 184.580042026937,
+      "init_loss": 3.7215583324432373,
+      "final_loss": 0.8806435465812683,
+      "init_recall_at_1": 0.125,
+      "final_recall_at_1": 1.0,
+      "init_pos_sim": 0.4500132203102112,
+      "init_neg_sim": 0.44463008642196655,
+      "final_pos_sim": 0.7672659158706665,
+      "final_neg_sim": 0.10371509194374084,
+      "margin_gain": 0.6581677198410034
+    },
+    "04_jit_vector_search_engine": {
+      "backend": "cpu",
+      "index_shape": [
+        50000,
+        256
+      ],
+      "index_mib": 48.828125,
+      "queries_shape": [
+        128,
+        256
+      ],
+      "top_k": 5,
+      "numpy_seq_ms": 1191.9367499649525,
+      "jax_batch_ms": 15.74861250119284,
+      "per_query_us": 123.03603516556906,
+      "speedup": 75.68519130651492,
+      "exact_match_rate": 1.0,
+      "needle_recall_at_1": 1.0,
+      "max_score_diff": 7.152557373046875e-07
+    },
+    "05_zero_shot_and_linear_probe_classifier": {
+      "backend": "cpu",
+      "num_train_samples": 32,
+      "num_test_tickets": 12,
+      "embed_dim": 64,
+      "untrained_zero_shot_acc": 0.5833333730697632,
+      "zero_shot_acc": 1.0,
+      "zero_shot_ms": 0.08629192598164082,
+      "linear_probe_acc": 1.0,
+      "linear_probe_confidence": 0.6695922613143921,
+      "linear_probe_train_ms": 53.890832932665944,
+      "linear_probe_loss": 0.20137187838554382,
+      "sample_predictions": [
+        {
+          "ticket": "necesito factura fiscal con IVA desglosado del cobro mensual en tarjeta",
+          "expected": "Facturacion",
+          "zero_shot": "Facturacion",
+          "linear_probe": "Facturacion",
+          "cosine_score": 0.7003616690635681
+        },
+        {
+          "ticket": "el certificado SSL de nuestro balanceador devuelve timeout en HTTPS",
+          "expected": "Redes/DNS",
+          "zero_shot": "Redes/DNS",
+          "linear_probe": "Redes/DNS",
+          "cosine_score": 0.744086503982544
+        },
+        {
+          "ticket": "error 403 PermissionDenied en la service account al acceder al bucket",
+          "expected": "Permisos IAM",
+          "zero_shot": "Permisos IAM",
+          "linear_probe": "Permisos IAM",
+          "cosine_score": 0.5688943862915039
+        },
+        {
+          "ticket": "bloqueo deadlock en transacciones SQL y tabla lenta sin indice B-tree",
+          "expected": "Base de Datos",
+          "zero_shot": "Base de Datos",
+          "linear_probe": "Base de Datos",
+          "cosine_score": 0.830199658870697
+        }
+      ]
+    }
+  }
+}
