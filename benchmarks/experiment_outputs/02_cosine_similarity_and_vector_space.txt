@@ -1,0 +1,18 @@
+========================================================================
+Experiment 02: Vector Space Geometry, L2 Norm & Cosine Similarity
+========================================================================
+Backend Device             : cpu
+Query x Document Shapes    : (64, 256) x (2048, 256)
+Unit Hypersphere Norm Err  : 1.79e-07
+------------------------------------------------------------------------
+Length trap (toy 4-D vectors): long same-topic doc vs short unrelated
+Euclidean (lower=closer)   : same=3.989 | unrelated=1.365 -> correct=False
+Cosine (higher=closer)     : same=1.0000 | unrelated=0.0557 -> correct=True
+------------------------------------------------------------------------
+Median ms per call after a warmup (loop n=3, others n=50):
+Python Pairwise Loop       : 89.4988 ms (131,072 pairs)
+NumPy Vectorized (matmul)  : 0.3318 ms (no JAX)
+JAX @jit L2 + einsum       : 0.4154 ms
+@jit vs Pairwise Loop      : 215.5x
+@jit vs NumPy Vectorized   : 0.80x
+Max |Loop - JAX @jit|      : 2.24e-07

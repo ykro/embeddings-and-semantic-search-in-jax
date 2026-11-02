@@ -1,0 +1,15 @@
+========================================================================
+Experiment 05: Centroids (zero-shot) vs Linear Probe on Frozen Embeddings
+========================================================================
+Backend Device               : cpu
+Frozen Embeddings            : D=64 | 32 labeled train, 12 unseen test
+Centroids, Untrained Encoder : 7/12 (58.3%, chance 25%)
+Centroids, 0 Trained Params  : 12/12 (100.0%) in 0.010 ms
+Linear Probe, 260 Params     : 12/12 (100.0%), 80 steps in 0.8 ms
+Probe Mean Confidence        : 67.0%
+------------------------------------------------------------------------
+Sample Unseen Ticket Predictions:
+  [Facturacion  ] -> Centroid=Facturacion   | Probe=Facturacion
+  [Redes/DNS    ] -> Centroid=Redes/DNS     | Probe=Redes/DNS
+  [Permisos IAM ] -> Centroid=Permisos IAM  | Probe=Permisos IAM
+  [Base de Datos] -> Centroid=Base de Datos | Probe=Base de Datos

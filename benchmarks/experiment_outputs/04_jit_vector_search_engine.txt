@@ -1,0 +1,28 @@
+========================================================================
+Experiment 04: @jax.jit Vector Search Engine (einsum + lax.top_k)
+========================================================================
+Backend Device             : cpu
+Vector Index Shape         : (50000, 256) float32 (48.8 MiB)
+Query Batch Shape          : (128, 256) (Top-K=5)
+Scores per Batch           : 6,400,000 (query, doc) pairs
+Planted Needle Recall@1    : 100.0%
+Same Top-5 IDs as NumPy    : 100.0% (max score diff 7.15e-07)
+Compiled XLA program       : 4 fusions + TopK call (True)
+------------------------------------------------------------------------
+Optimized HLO entry computation (jit_search_top_k):
+  %query_batch.1 = parameter -> f32[128,256]
+  %normalized_index.1 = parameter -> f32[50000,256]
+  %ynn_fusion.1 = fusion -> f32[128]
+  %maximum_divide_fusion = fusion -> f32[128]
+  %broadcast_multiply_fusion = fusion -> f32[128,256]
+  %ynn_fusion = fusion -> f32[128,50000]
+  %custom-call = custom-call TopK -> (f32[128,5], s32[128,5])
+------------------------------------------------------------------------
+Median ms per call after a warmup (loop n=3, others n=20):
+Python loop + argsort      : 1201.4833 ms (naive)
+NumPy batched (matmul)     : 54.7715 ms (no JAX)
+JAX @jit einsum + top_k    : 14.9986 ms
+Batch / 128 (throughput)   : 117.2 us per query
+1 Query Alone (latency)    : 0.7147 ms (@jit)
+@jit vs Python loop        : 80.1x
+@jit vs NumPy batched      : 3.65x

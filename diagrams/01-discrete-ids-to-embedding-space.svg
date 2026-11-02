@@ -76,7 +76,7 @@
         <!-- Node 2: W_embed[token_ids] Gather (FOCAL) -->
         <rect x="258" y="124" width="100" height="64" rx="6" fill="#c59216" fill-opacity="0.12" stroke="#C59216" stroke-width="1.4"/>
         <rect x="262" y="128" width="18" height="10" rx="3" fill="#c59216" fill-opacity="0.22"/><text x="271" y="133" class="role-text focal-text">LUT</text>
-        <text x="308" y="147" class="node-title">W_embed[ids]</text><text x="308" y="159" class="node-sub">f32[32000, 128]</text><text x="308" y="171" class="node-tool">250x less RAM</text>
+        <text x="308" y="147" class="node-title">W_embed[ids]</text><text x="308" y="159" class="node-sub">f32[32000, 128]</text><text x="308" y="171" class="node-tool">no 250 MiB one-hot</text>
         <rect x="262" y="178" width="16" height="8" rx="3" fill="#5e7a9b"/><text x="270" y="184" class="chip-text">ID</text>
         <rect x="338" y="178" width="16" height="8" rx="3" fill="#b8915a"/><text x="346" y="184" class="chip-text">3D</text>
 

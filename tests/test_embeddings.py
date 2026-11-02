@@ -18,8 +18,11 @@ def test_01_lookup_table_matches_one_hot_and_masks_pad_gradients() -> None:
     metrics = exp01.run_benchmark(num_iters=5)
     assert metrics["max_diff"] < 1e-5
     assert metrics["pad_grad_norm"] == 0.0
-    assert metrics["active_grad_norm"] > 0.0
+    assert metrics["nonzero_grad_rows"] > 0
     assert metrics["memory_saving_ratio"] == 250.0
+    assert metrics["lookup_has_gather"]
+    assert metrics["nonzero_grad_rows"] == metrics["unique_real_ids"]
+    assert metrics["max_diff_numpy"] < 1e-5
 
 
 def test_02_l2_normalization_and_cosine_length_invariance() -> None:
@@ -33,6 +36,10 @@ def test_02_l2_normalization_and_cosine_length_invariance() -> None:
     norms = jnp.linalg.norm(normed, axis=-1)
     assert float(jnp.max(jnp.abs(norms - 1.0))) < 1e-5
 
+    res = exp02.run_benchmark(num_queries=8, num_docs=128, dim=32, num_iters=3, loop_iters=1)
+    assert res["max_diff"] < 1e-5
+    assert res["max_diff_vectorized"] < 1e-5
+
 
 def test_03_contrastive_infonce_reaches_100_percent_recall_at_1() -> None:
     res = exp03.train_contrastive_model(num_steps=180)
@@ -42,8 +49,9 @@ def test_03_contrastive_infonce_reaches_100_percent_recall_at_1() -> None:
 
 
 def test_04_jit_vector_search_top_k_exact_parity() -> None:
-    res = exp04.run_benchmark(index_size=5000, dim=128, num_queries=32, num_iters=5)
+    res = exp04.run_benchmark(index_size=5000, dim=128, num_queries=32, num_iters=5, loop_iters=1)
     assert res["exact_match_rate"] == 1.0
+    assert res["exact_match_rate_batched"] == 1.0
     assert res["needle_recall_at_1"] == 1.0
     assert res["max_score_diff"] < 1e-5
 

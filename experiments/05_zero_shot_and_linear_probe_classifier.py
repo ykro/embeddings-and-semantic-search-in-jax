@@ -1,16 +1,24 @@
 """Experiment 05: Ticket & Intent Classification on Top of Frozen Embeddings.
 
 Compares two practical ways to build an intent classifier on top of a frozen
-contrastive embedding encoder without fine-tuning the base weights:
-1. Zero-Shot Centroid Classifier (0 trainable parameters, pure cosine to class prototypes)
-2. Linear Probe Classifier (lightweight linear layer trained with cross-entropy in @jax.jit)
+contrastive embedding encoder (from Experiment 03) without touching its weights:
+1. Centroid classifier, often called "zero-shot" because nothing is trained: the 32
+   labeled training embeddings are averaged into 4 class prototypes and a new ticket goes
+   to the closest one by cosine. Strictly speaking it uses labeled examples (few-shot
+   prototypes), it just trains 0 parameters.
+2. Linear probe: a 64 x 4 linear layer + bias (260 parameters) trained with cross-entropy.
+
+Both are evaluated on 12 unseen tickets (3 per category), so each ticket is 8.3 points of
+accuracy. The tickets reuse vocabulary from the training domains; it is a small toy test.
 """
 
 from __future__ import annotations
 
 import importlib
+import statistics
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -41,8 +49,20 @@ UNSEEN_TEST_TICKETS: list[tuple[str, int]] = [
 ]
 
 
+def _median_ms(fn: Callable[[], Any], n_iters: int) -> float:
+    """Median wall time of `fn()` in ms (robust to noisy neighbours on a shared machine)."""
+    times = []
+    for _ in range(n_iters):
+        t0 = time.perf_counter()
+        fn()
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
 @jax.jit
-def compute_class_centroids(embeddings: jax.Array, labels: jax.Array, num_classes: int = 4) -> jax.Array:
+def compute_class_centroids(
+    embeddings: jax.Array, labels: jax.Array, num_classes: int = 4
+) -> jax.Array:
     """Computes L2-normalized class prototype centroids from frozen embeddings."""
     one_hot = jax.nn.one_hot(labels, num_classes=num_classes, dtype=embeddings.dtype)
     class_sums = jnp.einsum("nc,nd->cd", one_hot, embeddings)
@@ -117,23 +137,25 @@ def run_experiment() -> dict[str, Any]:
     untrained_test_emb = exp03.encode_texts(untrained_params, test_raw)
     untrained_centroids = compute_class_centroids(untrained_train_emb, train_labels)
     untrained_preds, _ = zero_shot_predict(untrained_test_emb, untrained_centroids)
-    untrained_acc = float(jnp.mean((untrained_preds == test_labels).astype(jnp.float32)))
 
-    # 2. Zero-Shot Centroid Classifier on frozen contrastive embeddings
-    t0 = time.perf_counter()
+    # 2. Centroid classifier ("zero-shot": 0 trained parameters) on frozen embeddings
     centroids = compute_class_centroids(train_emb, train_labels)
     zs_preds, zs_sims = zero_shot_predict(test_emb, centroids)
-    zs_preds.block_until_ready()
-    zs_ms = (time.perf_counter() - t0) * 1000.0
-    zs_acc = float(jnp.mean((zs_preds == test_labels).astype(jnp.float32)))
 
-    # 3. Linear Probe Classifier on frozen contrastive embeddings
+    def centroid_call() -> jax.Array:
+        return zero_shot_predict(test_emb, compute_class_centroids(train_emb, train_labels))[0]
+
+    zs_ms = _median_ms(lambda: centroid_call().block_until_ready(), 50)
+    zs_correct = int(jnp.sum(zs_preds == test_labels))
+
+    # 3. Linear probe on frozen embeddings (warmup compiles probe_train_step; not timed)
     embed_dim = train_emb.shape[-1]
     num_classes = 4
     probe_params = {
         "W": jnp.zeros((embed_dim, num_classes), dtype=jnp.float32),
         "b": jnp.zeros((num_classes,), dtype=jnp.float32),
     }
+    jax.block_until_ready(probe_train_step(probe_params, train_emb, train_labels))
 
     t1 = time.perf_counter()
     for _ in range(80):
@@ -143,18 +165,25 @@ def run_experiment() -> dict[str, Any]:
 
     lp_preds, lp_probs = linear_probe_predict(probe_params, test_emb)
     lp_preds.block_until_ready()
-    lp_acc = float(jnp.mean((lp_preds == test_labels).astype(jnp.float32)))
+    lp_correct = int(jnp.sum(lp_preds == test_labels))
     lp_confidence = float(jnp.mean(jnp.max(lp_probs, axis=-1)))
+    num_test = int(test_emb.shape[0])
+    untrained_correct = int(jnp.sum(untrained_preds == test_labels))
 
     return {
         "backend": jax.default_backend(),
         "num_train_samples": int(train_emb.shape[0]),
-        "num_test_tickets": int(test_emb.shape[0]),
+        "num_test_tickets": num_test,
         "embed_dim": int(embed_dim),
-        "untrained_zero_shot_acc": untrained_acc,
-        "zero_shot_acc": zs_acc,
+        "untrained_correct": untrained_correct,
+        "untrained_zero_shot_acc": untrained_correct / num_test,
+        "zero_shot_correct": zs_correct,
+        "zero_shot_acc": zs_correct / num_test,
+        "zero_shot_trained_params": 0,
         "zero_shot_ms": zs_ms,
-        "linear_probe_acc": lp_acc,
+        "linear_probe_correct": lp_correct,
+        "linear_probe_acc": lp_correct / num_test,
+        "linear_probe_params": int(embed_dim * num_classes + num_classes),
         "linear_probe_confidence": lp_confidence,
         "linear_probe_train_ms": probe_train_ms,
         "linear_probe_loss": float(p_loss),
@@ -164,7 +193,7 @@ def run_experiment() -> dict[str, Any]:
                 "expected": exp03.CATEGORY_NAMES[int(test_labels[i])],
                 "zero_shot": exp03.CATEGORY_NAMES[int(zs_preds[i])],
                 "linear_probe": exp03.CATEGORY_NAMES[int(lp_preds[i])],
-                "cosine_score": float( jnp.max(zs_sims[i]) ),
+                "cosine_score": float(jnp.max(zs_sims[i])),
             }
             for i in (0, 3, 6, 9)
         ],
@@ -173,23 +202,35 @@ def run_experiment() -> dict[str, Any]:
 
 def main() -> None:
     res = run_experiment()
+    n = res["num_test_tickets"]
     print("=" * 72)
-    print("Experiment 05: Zero-Shot Centroids vs Linear Probe on Frozen Embeddings")
+    print("Experiment 05: Centroids (zero-shot) vs Linear Probe on Frozen Embeddings")
     print("=" * 72)
-    print(f"Backend Device             : {res['backend']}")
-    print(f"Frozen Embedding Shape     : D={res['embed_dim']} (Train={res['num_train_tickets'] if 'num_train_tickets' in res else res['num_train_samples']}, Test={res['num_test_tickets']})")
-    print(f"Untrained Baseline Acc     : {res['untrained_zero_shot_acc'] * 100:.1f}%")
-    print(f"Zero-Shot Centroid Acc     : {res['zero_shot_acc'] * 100:.1f}% (0 trainable params)")
+    print(f"{'Backend Device':<29}: {res['backend']}")
     print(
-        f"Linear Probe Accuracy      : {res['linear_probe_acc'] * 100:.1f}% "
-        f"(80 steps in {res['linear_probe_train_ms']:.2f} ms, mean conf={res['linear_probe_confidence'] * 100:.1f}%)"
+        f"{'Frozen Embeddings':<29}: D={res['embed_dim']} | "
+        f"{res['num_train_samples']} labeled train, {n} unseen test"
     )
+    print(
+        f"{'Centroids, Untrained Encoder':<29}: {res['untrained_correct']}/{n} "
+        f"({res['untrained_zero_shot_acc'] * 100:.1f}%, chance 25%)"
+    )
+    print(
+        f"{'Centroids, 0 Trained Params':<29}: {res['zero_shot_correct']}/{n} "
+        f"({res['zero_shot_acc'] * 100:.1f}%) in {res['zero_shot_ms']:.3f} ms"
+    )
+    probe = f"Linear Probe, {res['linear_probe_params']} Params"
+    print(
+        f"{probe:<29}: {res['linear_probe_correct']}/{n} "
+        f"({res['linear_probe_acc'] * 100:.1f}%), 80 steps in {res['linear_probe_train_ms']:.1f} ms"
+    )
+    print(f"{'Probe Mean Confidence':<29}: {res['linear_probe_confidence'] * 100:.1f}%")
     print("-" * 72)
     print("Sample Unseen Ticket Predictions:")
     for item in res["sample_predictions"]:
         print(
-            f"  [{item['expected']:<13}] -> ZeroShot={item['zero_shot']:<13} "
-            f"| Probe={item['linear_probe']:<13} (cos={item['cosine_score']:.3f})"
+            f"  [{item['expected']:<13}] -> Centroid={item['zero_shot']:<13} "
+            f"| Probe={item['linear_probe']}"
         )
 
 

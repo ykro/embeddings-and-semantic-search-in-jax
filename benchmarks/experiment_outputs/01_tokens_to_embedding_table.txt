@@ -1,0 +1,48 @@
+========================================================================
+Experiment 01: Discrete Token IDs to Dense Embedding Lookup Table
+========================================================================
+Backend Device             : cpu
+Vocabulary & Dimension     : V=32,000 | D=128
+Token IDs Shape            : (32, 64) int32, 1,416 real
+One-Hot Tensor (computed)  : 250.00 MiB f32[32,64,32000]
+Gathered Rows (computed)   : 1.00 MiB (250x smaller)
+Lookup Jaxpr has gather    : True
+One-Hot Jaxpr dot_general  : True
+Rows with Nonzero Grad     : 1,387 of 32,000 (unique real IDs: 1,387)
+PAD Row Grad Norm (ID=0)   : 0.000000
+------------------------------------------------------------------------
+Jaxpr of lookup_table_embed (W_embed[token_ids]):
+  bool[32,64] = lt(int32[32,64], int32[])
+  int32[32,64] = add(int32[32,64], int32[])
+  int32[32,64] = select_n(bool[32,64], int32[32,64], int32[32,64])
+  int32[32,64,1] = broadcast_in_dim(int32[32,64])
+  float32[32,64,128] = gather(float32[32000,128], int32[32,64,1])
+  float32[32,64,1] = broadcast_in_dim(float32[32,64])
+  float32[32,64,128] = mul(float32[32,64,128], float32[32,64,1])
+  float32[32,128] = reduce_sum(float32[32,64,128])
+  float32[32] = reduce_sum(float32[32,64])
+  float32[32,1] = broadcast_in_dim(float32[32])
+  float32[32,1] = max(float32[32,1], float32[])
+  float32[32,128] = div(float32[32,128], float32[32,1])
+Jaxpr of one_hot_matmul_embed:
+  float32[32,64,32000] = jit[_one_hot](int32[32,64])
+    int32[32,64,1] = broadcast_in_dim(int32[32,64])
+    int32[1,1,32000] = iota()
+    bool[32,64,32000] = eq(int32[32,64,1], int32[1,1,32000])
+    float32[32,64,32000] = convert_element_type(bool[32,64,32000])
+  float32[32,64,128] = dot_general(float32[32,64,32000], float32[32000,128])
+  float32[32,64,1] = broadcast_in_dim(float32[32,64])
+  float32[32,64,128] = mul(float32[32,64,128], float32[32,64,1])
+  float32[32,128] = reduce_sum(float32[32,64,128])
+  float32[32] = reduce_sum(float32[32,64])
+  float32[32,1] = broadcast_in_dim(float32[32])
+  float32[32,1] = max(float32[32,1], float32[])
+  float32[32,128] = div(float32[32,128], float32[32,1])
+------------------------------------------------------------------------
+Median ms per call after a warmup (n=30):
+One-Hot @ W_embed (@jit)   : 43.2536 ms
+W_embed[token_ids] (@jit)  : 0.1288 ms
+NumPy W_embed[token_ids]   : 0.1583 ms (no JAX)
+Gather vs One-Hot (@jit)   : 335.8x
+Gather (@jit) vs NumPy     : 1.23x
+Max |One-Hot - Gather|     : 0.00e+00

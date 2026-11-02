@@ -1,8 +1,10 @@
 """Experiment 03: Contrastive Representation Learning with InfoNCE and jax.value_and_grad.
 
-Trains a neural embedding projection head on Spanish technical support tickets
-(Facturacion, Redes/DNS, Permisos IAM, Base de Datos) using InfoNCE contrastive
-loss with temperature scaling, raising Recall@1 from random baseline to 100%.
+Trains a small projection head (192 -> 96 -> 64) on 16 Spanish technical support
+(query, document) pairs from 4 categories (Facturacion, Redes/DNS, Permisos IAM, Base de
+Datos). The loss is symmetric InfoNCE with temperature 0.08, plus a supervised category
+term and a small L2 penalty. Recall@1 is measured on the same 16 training pairs (it shows
+that the space was rearranged; generalization to unseen tickets is tested in Experiment 05).
 """
 
 from __future__ import annotations
@@ -112,6 +114,7 @@ CATEGORY_NAMES: tuple[str, ...] = (
 )
 
 # Domain synonym clusters that share co-occurrence context in technical corpora
+# fmt: off
 DOMAIN_CLUSTERS: tuple[tuple[str, ...], ...] = (
     (
         "cobro", "cargo", "doble", "duplicado", "tarjeta", "credito", "factura",
@@ -134,6 +137,7 @@ DOMAIN_CLUSTERS: tuple[tuple[str, ...], ...] = (
         "pool", "postgres", "pgbouncer", "wal", "vacuum", "autovacuum", "db",
     ),
 )
+# fmt: on
 
 RAW_DIM = 192
 EMBED_DIM = 64
@@ -142,10 +146,11 @@ EMBED_DIM = 64
 def text_to_raw_features(text: str, dim: int = RAW_DIM) -> np.ndarray:
     """Converts Spanish text into deterministic character n-gram + co-occurrence features.
 
-    Note: Queries and documents use different surface words from the same domain,
-    so raw lexical n-gram features dominate before training (~18.8% Recall@1),
-    while the contrastive projector learns to amplify the shared semantic channels
-    and suppress surface word-hash noise.
+    Toy featurizer: dims [16..192) hold hashed words and character 3-grams; dims [0..16)
+    hold a hand-made domain signal (a word from DOMAIN_CLUSTERS adds weight to its
+    category's 4 channels). Queries and documents use different surface words, so the
+    hashed features dominate before training (Recall@1 = 2/16); the projector learns to
+    amplify the shared domain channels and suppress the word-hash noise.
     """
     vec = np.zeros(dim, dtype=np.float32)
     tokens = [t.strip(".,;:?!") for t in text.lower().split() if t.strip(".,;:?!")]
@@ -175,13 +180,17 @@ def build_dataset() -> tuple[jax.Array, jax.Array, jax.Array]:
     return jnp.asarray(q_feats), jnp.asarray(d_feats), jnp.asarray(labels)
 
 
-def init_projector_params(key: jax.Array, in_dim: int = RAW_DIM, out_dim: int = EMBED_DIM) -> dict[str, jax.Array]:
+def init_projector_params(
+    key: jax.Array, in_dim: int = RAW_DIM, out_dim: int = EMBED_DIM
+) -> dict[str, jax.Array]:
     k1, k2 = jax.random.split(key)
     hidden_dim = 96
     return {
-        "W1": jax.random.normal(k1, (in_dim, hidden_dim), dtype=jnp.float32) * (1.0 / np.sqrt(in_dim)),
+        "W1": jax.random.normal(k1, (in_dim, hidden_dim), dtype=jnp.float32)
+        * (1.0 / np.sqrt(in_dim)),
         "b1": jnp.zeros((hidden_dim,), dtype=jnp.float32),
-        "W2": jax.random.normal(k2, (hidden_dim, out_dim), dtype=jnp.float32) * (1.0 / np.sqrt(hidden_dim)),
+        "W2": jax.random.normal(k2, (hidden_dim, out_dim), dtype=jnp.float32)
+        * (1.0 / np.sqrt(hidden_dim)),
         "b2": jnp.zeros((out_dim,), dtype=jnp.float32),
     }
 
@@ -202,7 +211,7 @@ def infonce_contrastive_loss(
     labels: jax.Array,
     temperature: float = 0.08,
 ) -> jax.Array:
-    """Symmetric InfoNCE loss + supervised in-domain positive attraction."""
+    """Training loss: 0.65 x symmetric InfoNCE + 0.35 x category term + L2 penalty."""
     q_emb = encode_texts(params, q_raw)
     d_emb = encode_texts(params, d_raw)
 
@@ -223,7 +232,7 @@ def infonce_contrastive_loss(
     cat_weights = same_cat / jnp.sum(same_cat, axis=1, keepdims=True)
     cat_loss = -jnp.mean(jnp.sum(cat_weights * log_probs_q2d, axis=1))
 
-    # L2 weight decay for clean generalization
+    # Small L2 penalty on the projector weights
     l2_reg = 1e-4 * (jnp.sum(params["W1"] ** 2) + jnp.sum(params["W2"] ** 2))
     return 0.65 * pair_loss + 0.35 * cat_loss + l2_reg
 
@@ -266,8 +275,13 @@ def train_contrastive_model(num_steps: int = 180) -> dict[str, Any]:
     init_r1, init_pos, init_neg = evaluate_retrieval(params, q_raw, d_raw)
     init_loss = float(infonce_contrastive_loss(params, q_raw, d_raw, labels))
 
+    # Warmup: the first call of train_step traces and compiles it. Its result is
+    # discarded (train_step is pure), so the timed loop below starts from the same params.
+    t_c = time.perf_counter()
+    jax.block_until_ready(train_step(params, q_raw, d_raw, labels))
+    compile_ms = (time.perf_counter() - t_c) * 1000.0
+
     t0 = time.perf_counter()
-    loss_val = init_loss
     for _ in range(num_steps):
         params, loss_arr = train_step(params, q_raw, d_raw, labels)
     loss_arr.block_until_ready()
@@ -281,9 +295,12 @@ def train_contrastive_model(num_steps: int = 180) -> dict[str, Any]:
         "num_pairs": int(q_raw.shape[0]),
         "embed_dim": EMBED_DIM,
         "num_steps": num_steps,
+        "first_call_compile_ms": compile_ms,
         "train_ms": train_ms,
+        "ms_per_step": train_ms / num_steps,
         "init_loss": init_loss,
         "final_loss": loss_val,
+        "recall_measured_on": "the 16 training pairs (chance = 1/16 = 6.25%)",
         "init_recall_at_1": float(init_r1),
         "final_recall_at_1": float(final_r1),
         "init_pos_sim": float(init_pos),
@@ -297,17 +314,25 @@ def train_contrastive_model(num_steps: int = 180) -> dict[str, Any]:
 
 def main() -> None:
     res = train_contrastive_model()
+    n = res["num_pairs"]
     print("=" * 72)
     print("Experiment 03: Contrastive InfoNCE Training with jax.value_and_grad")
     print("=" * 72)
     print(f"Backend Device             : {res['backend']}")
-    print(f"Support Corpus Pairs       : {res['num_pairs']} pairs across 4 domains (D={res['embed_dim']})")
-    print(f"Training Steps (@jax.jit)  : {res['num_steps']} steps in {res['train_ms']:.2f} ms")
-    print("-" * 72)
-    print(f"InfoNCE Loss (Before -> After)      : {res['init_loss']:.4f} -> {res['final_loss']:.4f}")
+    print(f"Support Corpus Pairs       : {n} pairs across 4 domains (D={res['embed_dim']})")
+    print(f"First Call (trace+compile) : {res['first_call_compile_ms']:.2f} ms")
     print(
-        f"Recall@1     (Before -> After)      : "
-        f"{res['init_recall_at_1'] * 100:.1f}% -> {res['final_recall_at_1'] * 100:.1f}%"
+        f"Training Steps (@jax.jit)  : {res['num_steps']} steps in {res['train_ms']:.2f} ms "
+        f"({res['ms_per_step']:.3f} ms/step)"
+    )
+    print("-" * 72)
+    print(
+        f"Training Loss (Before -> After)     : {res['init_loss']:.4f} -> {res['final_loss']:.4f}"
+    )
+    print(
+        f"{'Recall@1 on ' + str(n) + ' train pairs':<36}: "
+        f"{res['init_recall_at_1'] * 100:.1f}% -> {res['final_recall_at_1'] * 100:.1f}% "
+        f"(chance {100 / n:.2f}%)"
     )
     print(
         f"Positive Pair Cosine (Before->After): "

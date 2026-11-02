@@ -1,14 +1,19 @@
 """Experiment 02: Geometry of Meaning — L2 Normalization and Cosine Similarity in @jax.jit.
 
-Shows why Euclidean distance breaks when document length scales vector magnitude,
-and how projecting vectors onto the unit hypersphere (`v / norm(v)`) reduces
-all-pairs cosine similarity to a single batched `jnp.einsum("qd,nd->qn", Q, K)`
-compiled by OpenXLA.
+Shows, with two hand-made 4-D vectors, why Euclidean distance breaks when document
+length scales vector magnitude, and how projecting vectors onto the unit hypersphere
+(`v / norm(v)`) reduces all-pairs cosine similarity to one batched
+`jnp.einsum("qd,nd->qn", Q, K)` compiled by OpenXLA.
+
+Timings: the pair-by-pair Python loop is the naive baseline; the same math vectorized in
+NumPy (normalize + one matmul) is the fair one. Both are reported.
 """
 
 from __future__ import annotations
 
+import statistics
 import time
+from collections.abc import Callable
 from typing import Any
 
 import jax
@@ -25,7 +30,7 @@ def l2_normalize(vectors: jax.Array, eps: float = 1e-8) -> jax.Array:
 
 @jax.jit
 def batched_cosine_similarity(queries: jax.Array, documents: jax.Array) -> jax.Array:
-    """Computes exact all-pairs cosine similarity via L2 norm + fused einsum."""
+    """Exact all-pairs cosine similarity: L2 normalize both sides + one einsum."""
     q_norm = l2_normalize(queries)
     d_norm = l2_normalize(documents)
     return jnp.einsum("qd,nd->qn", q_norm, d_norm)
@@ -45,8 +50,25 @@ def numpy_loop_cosine_similarity(queries: np.ndarray, documents: np.ndarray) -> 
     return out
 
 
+def numpy_vectorized_cosine_similarity(queries: np.ndarray, documents: np.ndarray) -> np.ndarray:
+    """Fair baseline: the same math vectorized in NumPy (L2 normalize + one matmul)."""
+    q_unit = queries / np.maximum(np.linalg.norm(queries, axis=-1, keepdims=True), 1e-8)
+    d_unit = documents / np.maximum(np.linalg.norm(documents, axis=-1, keepdims=True), 1e-8)
+    return q_unit @ d_unit.T
+
+
+def _median_ms(fn: Callable[[], Any], n_iters: int) -> float:
+    """Median wall time of `fn()` in ms (robust to noisy neighbours on a shared machine)."""
+    times = []
+    for _ in range(n_iters):
+        t0 = time.perf_counter()
+        fn()
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
 def demonstrate_length_invariance() -> dict[str, Any]:
-    """Demonstrates how Euclidean distance fails under document length scaling while cosine succeeds."""
+    """Euclidean distance fails when a document is just longer; cosine similarity does not."""
     # Query: short ticket about database timeout
     query = jnp.array([0.82, 0.54, 0.12, -0.10], dtype=jnp.float32)
 
@@ -81,6 +103,7 @@ def run_benchmark(
     num_docs: int = 2048,
     dim: int = 256,
     num_iters: int = 50,
+    loop_iters: int = 3,
 ) -> dict[str, Any]:
     geom_check = demonstrate_length_invariance()
 
@@ -91,67 +114,69 @@ def run_benchmark(
     q_jax = jnp.asarray(q_np)
     d_jax = jnp.asarray(d_np)
 
-    # Warmup JAX @jit
-    jax_out = batched_cosine_similarity(q_jax, d_jax)
-    jax_out.block_until_ready()
+    # Warmup: the first call traces and compiles; it is not timed
+    jax_out = batched_cosine_similarity(q_jax, d_jax).block_until_ready()
 
     # Check unit norms on hypersphere
     norms = jnp.linalg.norm(l2_normalize(d_jax), axis=-1)
     max_norm_error = float(jnp.max(jnp.abs(norms - 1.0)))
 
-    # Measure Python/NumPy loop baseline (1 run since loop over 64x2048 = 131,072 pairs is slow)
-    t0 = time.perf_counter()
+    # Parity of both baselines against the compiled einsum
     np_out = numpy_loop_cosine_similarity(q_np, d_np)
-    numpy_loop_ms = (time.perf_counter() - t0) * 1000.0
-
-    # Measure JAX @jit batched einsum
-    t1 = time.perf_counter()
-    for _ in range(num_iters):
-        res = batched_cosine_similarity(q_jax, d_jax)
-        res.block_until_ready()
-    jax_jit_ms = ((time.perf_counter() - t1) / num_iters) * 1000.0
-
+    np_vec_out = numpy_vectorized_cosine_similarity(q_np, d_np)
     max_diff = float(np.max(np.abs(np_out - np.asarray(jax_out))))
-    speedup = numpy_loop_ms / jax_jit_ms
+    max_diff_vectorized = float(np.max(np.abs(np_vec_out - np.asarray(jax_out))))
+
+    # Timing: median per call (the loop does 131,072 Python iterations, so fewer repeats)
+    numpy_loop_ms = _median_ms(lambda: numpy_loop_cosine_similarity(q_np, d_np), loop_iters)
+    numpy_vec_ms = _median_ms(lambda: numpy_vectorized_cosine_similarity(q_np, d_np), num_iters)
+    jax_jit_ms = _median_ms(
+        lambda: batched_cosine_similarity(q_jax, d_jax).block_until_ready(), num_iters
+    )
 
     return {
         "backend": jax.default_backend(),
         "queries_shape": (num_queries, dim),
         "docs_shape": (num_docs, dim),
         "max_norm_error": max_norm_error,
+        "timing": f"median ms per call after a warmup, n={num_iters} (loop n={loop_iters})",
         "numpy_loop_ms": numpy_loop_ms,
+        "numpy_vectorized_ms": numpy_vec_ms,
         "jax_jit_ms": jax_jit_ms,
-        "speedup": speedup,
+        "speedup": numpy_loop_ms / jax_jit_ms,
+        "speedup_vs_numpy_vectorized": numpy_vec_ms / jax_jit_ms,
         "max_diff": max_diff,
+        "max_diff_vectorized": max_diff_vectorized,
         **geom_check,
     }
 
 
 def main() -> None:
-    metrics = run_benchmark()
+    m = run_benchmark()
     print("=" * 72)
     print("Experiment 02: Vector Space Geometry, L2 Norm & Cosine Similarity")
     print("=" * 72)
-    print(f"Backend Device             : {metrics['backend']}")
-    print(f"Query x Document Shapes    : {metrics['queries_shape']} x {metrics['docs_shape']}")
-    print(f"Unit Hypersphere Norm Err  : {metrics['max_norm_error']:.2e}")
+    print(f"Backend Device             : {m['backend']}")
+    print(f"Query x Document Shapes    : {m['queries_shape']} x {m['docs_shape']}")
+    print(f"Unit Hypersphere Norm Err  : {m['max_norm_error']:.2e}")
     print("-" * 72)
-    print("Length-Scale Trap (Long Paraphrase vs Short Unrelated Ticket):")
+    print("Length trap (toy 4-D vectors): long same-topic doc vs short unrelated")
     print(
-        f"  Euclidean Distance       : Long Same-Topic={metrics['euclid_same_topic_long']:.3f} "
-        f"| Short Unrelated={metrics['euclid_unrelated_short']:.3f} "
-        f"(Correct={metrics['euclid_picks_correct_doc']})"
+        f"Euclidean (lower=closer)   : same={m['euclid_same_topic_long']:.3f} "
+        f"| unrelated={m['euclid_unrelated_short']:.3f} -> correct={m['euclid_picks_correct_doc']}"
     )
     print(
-        f"  Cosine Similarity        : Long Same-Topic={metrics['cosine_same_topic_long']:.4f} "
-        f"| Short Unrelated={metrics['cosine_unrelated_short']:.4f} "
-        f"(Correct={metrics['cosine_picks_correct_doc']})"
+        f"Cosine (higher=closer)     : same={m['cosine_same_topic_long']:.4f} "
+        f"| unrelated={m['cosine_unrelated_short']:.4f} -> correct={m['cosine_picks_correct_doc']}"
     )
     print("-" * 72)
-    print(f"Python/NumPy Pairwise Loop : {metrics['numpy_loop_ms']:.4f} ms")
-    print(f"JAX @jit L2 + einsum       : {metrics['jax_jit_ms']:.4f} ms")
-    print(f"Speedup vs Pairwise Loop   : {metrics['speedup']:.2f}x")
-    print(f"Max |NumPy - JAX @jit|     : {metrics['max_diff']:.2e}")
+    print("Median ms per call after a warmup (loop n=3, others n=50):")
+    print(f"Python Pairwise Loop       : {m['numpy_loop_ms']:.4f} ms (131,072 pairs)")
+    print(f"NumPy Vectorized (matmul)  : {m['numpy_vectorized_ms']:.4f} ms (no JAX)")
+    print(f"JAX @jit L2 + einsum       : {m['jax_jit_ms']:.4f} ms")
+    print(f"@jit vs Pairwise Loop      : {m['speedup']:.1f}x")
+    print(f"@jit vs NumPy Vectorized   : {m['speedup_vs_numpy_vectorized']:.2f}x")
+    print(f"Max |Loop - JAX @jit|      : {m['max_diff']:.2e}")
 
 
 if __name__ == "__main__":
