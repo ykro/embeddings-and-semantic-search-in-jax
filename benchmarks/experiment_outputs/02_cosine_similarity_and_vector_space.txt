@@ -10,9 +10,9 @@ Euclidean (lower=closer)   : same=3.989 | unrelated=1.365 -> correct=False
 Cosine (higher=closer)     : same=1.0000 | unrelated=0.0557 -> correct=True
 ------------------------------------------------------------------------
 Median ms per call after a warmup (loop n=3, others n=50):
-Python Pairwise Loop       : 89.4988 ms (131,072 pairs)
-NumPy Vectorized (matmul)  : 0.3318 ms (no JAX)
-JAX @jit L2 + einsum       : 0.4154 ms
-@jit vs Pairwise Loop      : 215.5x
-@jit vs NumPy Vectorized   : 0.80x
+Python Pairwise Loop       : 211.5521 ms (131,072 pairs)
+NumPy Vectorized (matmul)  : 0.4251 ms (no JAX)
+JAX @jit L2 + einsum       : 1.0687 ms
+@jit vs Pairwise Loop      : 197.9x
+@jit vs NumPy Vectorized   : 0.40x
 Max |Loop - JAX @jit|      : 2.24e-07

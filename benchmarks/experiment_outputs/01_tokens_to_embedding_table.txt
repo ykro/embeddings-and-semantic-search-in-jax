@@ -40,9 +40,9 @@ Jaxpr of one_hot_matmul_embed:
   float32[32,128] = div(float32[32,128], float32[32,1])
 ------------------------------------------------------------------------
 Median ms per call after a warmup (n=30):
-One-Hot @ W_embed (@jit)   : 43.2536 ms
-W_embed[token_ids] (@jit)  : 0.1288 ms
-NumPy W_embed[token_ids]   : 0.1583 ms (no JAX)
-Gather vs One-Hot (@jit)   : 335.8x
-Gather (@jit) vs NumPy     : 1.23x
+One-Hot @ W_embed (@jit)   : 151.8411 ms
+W_embed[token_ids] (@jit)  : 0.3330 ms
+NumPy W_embed[token_ids]   : 0.3388 ms (no JAX)
+Gather vs One-Hot (@jit)   : 456.0x
+Gather (@jit) vs NumPy     : 1.02x
 Max |One-Hot - Gather|     : 0.00e+00

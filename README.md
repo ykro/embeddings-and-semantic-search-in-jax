@@ -35,14 +35,14 @@ Este bloque lo reescribe `verify_embeddings.py` en cada corrida con los mismos v
 
 <!-- judge:start -->
 
-Corrida del juez en Apple M1 Max (10 núcleos), Python 3.12.11, JAX 0.12.0.1, NumPy 2.5.4, backend `cpu`. Carga del sistema (load average de 1 min): 22.26 al empezar. Tiempos = mediana por llamada después de una llamada de calentamiento.
+Corrida del juez en Apple M1 Max (10 núcleos), Python 3.12.11, JAX 0.12.0.1, NumPy 2.5.4, backend `cpu`. Carga del sistema (load average de 1 min): 10.75 al empezar. Tiempos = mediana por llamada después de una llamada de calentamiento.
 
 | Experimento | Baseline | JAX + OpenXLA | Speedup / Verificación | Baseline justo / nota |
 | :--- | :--- | :--- | :--- | :--- |
-| **01. Gather vs one-hot (jit)** | `47.19 ms` | `0.158 ms` | **298.1x** | 1.64x vs NumPy W[ids] |
-| **02. jit cosine vs pair loop** | `95.31 ms` | `0.475 ms` | **200.6x** | 0.80x vs NumPy matmul |
+| **01. Gather vs one-hot (jit)** | `180.4 ms` | `0.396 ms` | **456.0x** | 0.71x vs NumPy W[ids] |
+| **02. jit cosine vs pair loop** | `215.4 ms` | `1.49 ms` | **144.9x** | 0.30x vs NumPy matmul |
 | **03. InfoNCE, 16 train pairs** | `12.5% R@1` | `100.0% R@1` | **+0.658 margin** | chance 6.25% R@1 |
-| **04. jit top-k vs query loop** | `1238.3 ms` | `15.89 ms` | **77.9x** | 3.75x vs NumPy batched |
+| **04. jit top-k vs query loop** | `1909.3 ms` | `23.88 ms` | **80.0x** | 3.02x vs NumPy batched |
 | **05. Centroids & linear probe** | `7/12 acc` | `12/12 acc` | **probe 12/12** | untrained enc, 12 unseen |
 
 Salida íntegra de terminal generada por `verify_embeddings.py`:
@@ -52,14 +52,14 @@ Salida íntegra de terminal generada por `verify_embeddings.py`:
 THE OUTSIDE JUDGE — Embeddings & Semantic Search in JAX Verification Report
 ==================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | NumPy 2.5.4 | Backend: cpu
-CPU     : Apple M1 Max (10 cores) | 1-min load average 22.26 before, 20.43 after
+CPU     : Apple M1 Max (10 cores) | 1-min load average 10.75 before, 12.27 after
 --------------------------------------------------------------------------------------------------
 Experiment                   | Baseline   | JAX        | Speedup/Check | Fair baseline / note
 --------------------------------------------------------------------------------------------------
-01. Gather vs one-hot (jit)  | 47.19 ms   | 0.158 ms   | 298.1x        | 1.64x vs NumPy W[ids]
-02. jit cosine vs pair loop  | 95.31 ms   | 0.475 ms   | 200.6x        | 0.80x vs NumPy matmul
+01. Gather vs one-hot (jit)  | 180.4 ms   | 0.396 ms   | 456.0x        | 0.71x vs NumPy W[ids]
+02. jit cosine vs pair loop  | 215.4 ms   | 1.49 ms    | 144.9x        | 0.30x vs NumPy matmul
 03. InfoNCE, 16 train pairs  | 12.5% R@1  | 100.0% R@1 | +0.658 margin | chance 6.25% R@1
-04. jit top-k vs query loop  | 1238.3 ms  | 15.89 ms   | 77.9x         | 3.75x vs NumPy batched
+04. jit top-k vs query loop  | 1909.3 ms  | 23.88 ms   | 80.0x         | 3.02x vs NumPy batched
 05. Centroids & linear probe | 7/12 acc   | 12/12 acc  | probe 12/12   | untrained enc, 12 unseen
 --------------------------------------------------------------------------------------------------
 Times: median per call after a warmup; they vary run to run and with machine load.

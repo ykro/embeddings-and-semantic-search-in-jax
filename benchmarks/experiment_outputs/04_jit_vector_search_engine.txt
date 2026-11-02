@@ -19,10 +19,10 @@ Optimized HLO entry computation (jit_search_top_k):
   %custom-call = custom-call TopK -> (f32[128,5], s32[128,5])
 ------------------------------------------------------------------------
 Median ms per call after a warmup (loop n=3, others n=20):
-Python loop + argsort      : 1201.4833 ms (naive)
-NumPy batched (matmul)     : 54.7715 ms (no JAX)
-JAX @jit einsum + top_k    : 14.9986 ms
-Batch / 128 (throughput)   : 117.2 us per query
-1 Query Alone (latency)    : 0.7147 ms (@jit)
-@jit vs Python loop        : 80.1x
-@jit vs NumPy batched      : 3.65x
+Python loop + argsort      : 2212.2643 ms (naive)
+NumPy batched (matmul)     : 97.2056 ms (no JAX)
+JAX @jit einsum + top_k    : 31.1361 ms
+Batch / 128 (throughput)   : 243.3 us per query
+1 Query Alone (latency)    : 1.6161 ms (@jit)
+@jit vs Python loop        : 71.1x
+@jit vs NumPy batched      : 3.12x

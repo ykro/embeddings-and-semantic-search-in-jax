@@ -3,8 +3,8 @@ Experiment 03: Contrastive InfoNCE Training with jax.value_and_grad
 ========================================================================
 Backend Device             : cpu
 Support Corpus Pairs       : 16 pairs across 4 domains (D=64)
-First Call (trace+compile) : 223.34 ms
-Training Steps (@jax.jit)  : 180 steps in 19.83 ms (0.110 ms/step)
+First Call (trace+compile) : 692.17 ms
+Training Steps (@jax.jit)  : 180 steps in 30.41 ms (0.169 ms/step)
 ------------------------------------------------------------------------
 Training Loss (Before -> After)     : 3.7216 -> 0.8806
 Recall@1 on 16 train pairs          : 12.5% -> 100.0% (chance 6.25%)
